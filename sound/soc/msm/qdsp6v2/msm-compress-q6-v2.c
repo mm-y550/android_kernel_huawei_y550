@@ -93,8 +93,11 @@ struct msm_compr_pdata {
 	struct snd_compr_stream *cstream[MSM_FRONTEND_DAI_MAX];
 	uint32_t volume[MSM_FRONTEND_DAI_MAX][2]; /* For both L & R */
 	struct msm_compr_audio_effects *audio_effects[MSM_FRONTEND_DAI_MAX];
+<<<<<<< HEAD
 	bool use_dsp_gapless_mode;
 	struct msm_compr_dec_params *dec_params[MSM_FRONTEND_DAI_MAX];
+=======
+>>>>>>> a10f89a... ASoC: msm: Add support to enable audio post processing in DSP
 };
 
 struct msm_compr_audio {
@@ -824,17 +827,6 @@ static int msm_compr_open(struct snd_compr_stream *cstream)
 		 kzalloc(sizeof(struct msm_compr_audio_effects), GFP_KERNEL);
 	if (!pdata->audio_effects[rtd->dai_link->be_id]) {
 		pr_err("%s: Could not allocate memory for effects\n", __func__);
-		pdata->cstream[rtd->dai_link->be_id] = NULL;
-		kfree(prtd);
-		return -ENOMEM;
-	}
-	pdata->dec_params[rtd->dai_link->be_id] =
-		 kzalloc(sizeof(struct msm_compr_dec_params), GFP_KERNEL);
-	if (!pdata->dec_params[rtd->dai_link->be_id]) {
-		pr_err("%s: Could not allocate memory for dec params\n",
-			__func__);
-		kfree(pdata->audio_effects[rtd->dai_link->be_id]);
-		pdata->cstream[rtd->dai_link->be_id] = NULL;
 		kfree(prtd);
 		return -ENOMEM;
 	}
@@ -843,8 +835,6 @@ static int msm_compr_open(struct snd_compr_stream *cstream)
 	if (!prtd->audio_client) {
 		pr_err("%s: Could not allocate memory for client\n", __func__);
 		kfree(pdata->audio_effects[rtd->dai_link->be_id]);
-		kfree(pdata->dec_params[rtd->dai_link->be_id]);
-		pdata->cstream[rtd->dai_link->be_id] = NULL;
 		kfree(prtd);
 		return -ENOMEM;
 	}
@@ -996,7 +986,6 @@ static int msm_compr_free(struct snd_compr_stream *cstream)
 	q6asm_audio_client_free(ac);
 
 	kfree(pdata->audio_effects[soc_prtd->dai_link->be_id]);
-	kfree(pdata->dec_params[soc_prtd->dai_link->be_id]);
 	kfree(prtd);
 
 	return 0;
@@ -1959,7 +1948,7 @@ static int msm_compr_audio_effects_config_get(struct snd_kcontrol *kcontrol,
 }
 
 static int msm_compr_dec_params_put(struct snd_kcontrol *kcontrol,
-				    struct snd_ctl_elem_value *ucontrol)
+				   struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_platform *platform = snd_kcontrol_chip(kcontrol);
 	unsigned long fe_id = kcontrol->private_value;
@@ -2287,6 +2276,134 @@ static int msm_compr_new(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+static int msm_compr_volume_info(struct snd_kcontrol *kcontrol,
+				 struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = 2;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = COMPRESSED_LR_VOL_MAX_STEPS;
+	return 0;
+}
+
+static int msm_compr_audio_effects_config_info(struct snd_kcontrol *kcontrol,
+					       struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = 128;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = 0xFFFFFFFF;
+	return 0;
+}
+
+static int msm_compr_add_volume_control(struct snd_soc_pcm_runtime *rtd)
+{
+	const char *mixer_ctl_name = "Compress Playback";
+	const char *deviceNo       = "NN";
+	const char *suffix         = "Volume";
+	char *mixer_str = NULL;
+	int ctl_len;
+	struct snd_kcontrol_new fe_volume_control[1] = {
+		{
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name = "?",
+		.access = SNDRV_CTL_ELEM_ACCESS_TLV_READ |
+			  SNDRV_CTL_ELEM_ACCESS_READWRITE,
+		.info = msm_compr_volume_info,
+		.tlv.p = msm_compr_vol_gain,
+		.get = msm_compr_volume_get,
+		.put = msm_compr_volume_put,
+		.private_value = 0,
+		}
+	};
+
+	if (!rtd) {
+		pr_err("%s NULL rtd\n", __func__);
+		return 0;
+	}
+	pr_debug("%s: added new compr FE with name %s, id %d, cpu dai %s, device no %d\n",
+		 __func__, rtd->dai_link->name, rtd->dai_link->be_id,
+		 rtd->dai_link->cpu_dai_name, rtd->pcm->device);
+	ctl_len = strlen(mixer_ctl_name) + 1 + strlen(deviceNo) + 1 +
+		  strlen(suffix) + 1;
+	mixer_str = kzalloc(ctl_len, GFP_KERNEL);
+	if (!mixer_str) {
+		pr_err("failed to allocate mixer ctrl str of len %d", ctl_len);
+		return 0;
+	}
+	snprintf(mixer_str, ctl_len, "%s %d %s", mixer_ctl_name,
+		 rtd->pcm->device, suffix);
+	fe_volume_control[0].name = mixer_str;
+	fe_volume_control[0].private_value = rtd->dai_link->be_id;
+	pr_debug("Registering new mixer ctl %s", mixer_str);
+	snd_soc_add_platform_controls(rtd->platform, fe_volume_control,
+				      ARRAY_SIZE(fe_volume_control));
+	kfree(mixer_str);
+	return 0;
+}
+
+static int msm_compr_add_audio_effects_control(struct snd_soc_pcm_runtime *rtd)
+{
+	const char *mixer_ctl_name = "Audio Effects Config";
+	const char *deviceNo       = "NN";
+	char *mixer_str = NULL;
+	int ctl_len;
+	struct snd_kcontrol_new fe_audio_effects_config_control[1] = {
+		{
+		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name = "?",
+		.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
+		.info = msm_compr_audio_effects_config_info,
+		.get = msm_compr_audio_effects_config_get,
+		.put = msm_compr_audio_effects_config_put,
+		.private_value = 0,
+		}
+	};
+
+
+	if (!rtd) {
+		pr_err("%s NULL rtd\n", __func__);
+		return 0;
+	}
+
+	pr_debug("%s: added new compr FE with name %s, id %d, cpu dai %s, device no %d\n",
+		 __func__, rtd->dai_link->name, rtd->dai_link->be_id,
+		 rtd->dai_link->cpu_dai_name, rtd->pcm->device);
+
+	ctl_len = strlen(mixer_ctl_name) + 1 + strlen(deviceNo) + 1;
+	mixer_str = kzalloc(ctl_len, GFP_KERNEL);
+
+	if (!mixer_str) {
+		pr_err("failed to allocate mixer ctrl str of len %d", ctl_len);
+		return 0;
+	}
+
+	snprintf(mixer_str, ctl_len, "%s %d", mixer_ctl_name, rtd->pcm->device);
+
+	fe_audio_effects_config_control[0].name = mixer_str;
+	fe_audio_effects_config_control[0].private_value = rtd->dai_link->be_id;
+	pr_debug("Registering new mixer ctl %s", mixer_str);
+	snd_soc_add_platform_controls(rtd->platform,
+				fe_audio_effects_config_control,
+				ARRAY_SIZE(fe_audio_effects_config_control));
+	kfree(mixer_str);
+	return 0;
+}
+
+static int msm_compr_new(struct snd_soc_pcm_runtime *rtd)
+{
+	int rc;
+
+	rc = msm_compr_add_volume_control(rtd);
+	if (rc)
+		pr_err("%s: Could not add Compr Volume Control\n", __func__);
+	rc = msm_compr_add_audio_effects_control(rtd);
+	if (rc)
+		pr_err("%s: Could not add Compr Audio Effects Control\n",
+			__func__);
+	return 0;
+}
+
 static struct snd_compr_ops msm_compr_ops = {
 	.open		= msm_compr_open,
 	.free		= msm_compr_free,
@@ -2304,9 +2421,6 @@ static struct snd_soc_platform_driver msm_soc_platform = {
 	.probe		= msm_compr_probe,
 	.compr_ops	= &msm_compr_ops,
 	.pcm_new	= msm_compr_new,
-	.controls       = msm_compr_gapless_controls,
-	.num_controls   = ARRAY_SIZE(msm_compr_gapless_controls),
-
 };
 
 static int msm_compr_dev_probe(struct platform_device *pdev)
