@@ -4610,23 +4610,14 @@ int q6asm_send_audio_effects_params(struct audio_client *ac, char *params,
 	rc = apr_send_pkt(ac->apr, (uint32_t *) asm_params);
 	if (rc < 0) {
 		pr_err("%s: audio effects set-params send failed\n", __func__);
-		rc = -EINVAL;
 		goto fail_send_param;
 	}
 	rc = wait_event_timeout(ac->cmd_wait,
-				(atomic_read(&ac->cmd_state) <= 0), 1*HZ);
+				(atomic_read(&ac->cmd_state) == 0), 1*HZ);
 	if (!rc) {
 		pr_err("%s: timeout, audio effects set-params\n", __func__);
-		rc = -ETIMEDOUT;
 		goto fail_send_param;
 	}
-	if (atomic_read(&ac->cmd_state) < 0) {
-		pr_err("%s: DSP returned error[%d] set-params\n",
-				__func__, atomic_read(&ac->cmd_state));
-		rc = -EINVAL;
-		goto fail_send_param;
-	}
-
 	rc = 0;
 fail_send_param:
 	kfree(asm_params);
