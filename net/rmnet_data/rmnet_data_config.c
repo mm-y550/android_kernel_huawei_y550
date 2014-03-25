@@ -987,6 +987,28 @@ static void _rmnet_free_vnd_later(struct work_struct *work)
 }
 
 /**
+ * rmnet_free_vnd_later() - Schedule a work item to free virtual network device
+ * @id:       RmNet virtual device node id
+ *
+ * Schedule the VND to be freed at a later time. We need to do this if the
+ * rtnl lock is already held as to prevent a deadlock.
+ */
+static void rmnet_free_vnd_later(int id)
+{
+	struct rmnet_free_vnd_work *work;
+	LOGL("(%d);", id);
+	work = (struct rmnet_free_vnd_work *)
+		kmalloc(sizeof(struct rmnet_free_vnd_work), GFP_KERNEL);
+	if (!work) {
+		LOGH("Failed to queue removal of VND:%d", id);
+		return;
+	}
+	INIT_WORK((struct work_struct *)work, _rmnet_free_vnd_later);
+	work->vnd_id = id;
+	schedule_work((struct work_struct *)work);
+}
+
+/**
  * rmnet_force_unassociate_device() - Force a device to unassociate
  * @dev:       Device to unassociate
  *
