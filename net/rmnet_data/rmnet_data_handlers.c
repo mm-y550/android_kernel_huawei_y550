@@ -111,7 +111,8 @@ void rmnet_print_packet(const struct sk_buff *skb, const char *dev, char dir)
 	if (skb->len > 0)
 		len = skb->len;
 	else
-		len = ((unsigned int)skb->end) - ((unsigned int)skb->data);
+		len = ((unsigned int)(uintptr_t)skb->end) -
+		      ((unsigned int)(uintptr_t)skb->data);
 
 	pr_err("[%s][%c] - PKT len: %d, printing first %d bytes\n",
 		dev, dir, len, printlen);
