@@ -83,6 +83,7 @@
 		                94 5B 80 10 26 30 0f];
 	};
 
+/* Add qcom patch to solve black screen problem, case:01642933 */
 	qcom,spm@b012000 {
 		compatible = "qcom,spm-v2";
 		#address-cells = <1>;
@@ -145,49 +146,16 @@
 				qcom,min-child-idx = <1>;
 			};
 
-			qcom,pm-cluster-level@2{
-				reg = <2>;
-				label = "l2-pc";
-				qcom,spm-l2-mode = "pc";
+/* Add qcom patch to solve black screen problem, case:01642933 */
+			qcom,system-mode@1 {
+				qcom,l2 = "l2_cache_pc";
 				qcom,latency-us = <11030>;
 				qcom,ss-power = <490>;
 				qcom,energy-overhead = <972390>;
 				qcom,time-overhead = <1580>;
-				qcom,min-child-idx = <2>;
-				qcom,notify-rpm;
-			};
-
-			qcom,pm-cpu {
-				#address-cells = <1>;
-				#size-cells = <0>;
-				qcom,pm-cpu-level@0 {
-					reg = <0>;
-					qcom,spm-cpu-mode = "wfi";
-					qcom,latency-us = <1>;
-					qcom,ss-power = <560>;
-					qcom,energy-overhead = <12000>;
-					qcom,time-overhead = <20>;
-				};
-
-				qcom,pm-cpu-level@1 {
-					reg = <1>;
-					qcom,spm-cpu-mode = "standalone_pc";
-					qcom,latency-us = <180>;
-					qcom,ss-power = <550>;
-					qcom,energy-overhead = <160000>;
-					qcom,time-overhead = <280>;
-					qcom,use-broadcast-timer;
-				};
-
-				qcom,pm-cpu-level@2 {
-					reg = <2>;
-					qcom,spm-cpu-mode = "pc";
-					qcom,latency-us = <230>;
-					qcom,ss-power = <535>;
-					qcom,energy-overhead = <200000>;
-					qcom,time-overhead = <330>;
-					qcom,use-broadcast-timer;
-				};
+				qcom,min-cpu-mode= "pc";
+				qcom,send-rpm-sleep-set;
+				qcom,sync-mode;
 			};
 		};
 	};

@@ -779,8 +779,10 @@ static ssize_t ffs_epfile_io(struct file *file,
 
 	pr_debug("%s: len %zu, read %d\n", __func__, len, read);
 
-	if (atomic_read(&epfile->error))
+	if (atomic_read(&epfile->error)) {
+		pr_err("%s error is set before queuing, read:%d\n", __func__, read);
 		return -ENODEV;
+	}
 
 	goto first_try;
 	do {
@@ -928,17 +930,10 @@ first_try:
 				ret = -ENODEV;
 			spin_unlock_irq(&epfile->ffs->eps_lock);
 			if (read && ret > 0) {
-				if (len != MAX_BUF_LEN && ret < len)
-					pr_err("less data(%zd) recieved than intended length(%zu)\n",
-								ret, len);
 				if (ret > len) {
+					pr_err("%s: !!overflow, read:%d\n, ret (%d) len(%d)", __func__, read, ret, len);
 					ret = -EOVERFLOW;
-					pr_err("More data(%zd) recieved than intended length(%zu)\n",
-								ret, len);
-				} else if (unlikely(copy_to_user(
-							buf, data, ret))) {
-					pr_err("Fail to copy to user len:%zd\n",
-									ret);
+				} else if (unlikely(copy_to_user(buf, data, ret))) {
 					ret = -EFAULT;
 				}
 			}
@@ -947,9 +942,10 @@ first_try:
 
 	mutex_unlock(&epfile->mutex);
 error:
-	kfree(data);
+	kfree(data);    
 	if (ret < 0)
-		pr_err("Error: returning %zd value\n", ret);
+		pr_info("return(%d) %dn buff_len:%d\n", ret, len,buffer_len);
+
 	return ret;
 }
 
@@ -1023,6 +1019,7 @@ static long ffs_epfile_ioctl(struct file *file, unsigned code,
 			ret = 0;
 			break;
 		case FUNCTIONFS_CLEAR_HALT:
+			pr_err("%s, adbd issues CLEAR_HALT\n", __func__);
 			ret = usb_ep_clear_halt(epfile->ep->ep);
 			break;
 		case FUNCTIONFS_ENDPOINT_REVMAP:

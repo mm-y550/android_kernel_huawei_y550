@@ -255,7 +255,7 @@ static ssize_t sensors_delay_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%u\n",
 			sensors_cdev->delay_msec);
 }
-
+/*upload the qulacom patch to realize compass MMI test*/
 static ssize_t sensors_test_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -268,11 +268,20 @@ static ssize_t sensors_test_show(struct device *dev,
 	}
 
 	ret = sensors_cdev->sensors_self_test(sensors_cdev);
-	if (ret)
+	if (ret){
+		dev_warn(dev, "self test success.(%d)\n", ret);
+	}
+	else{
 		dev_warn(dev, "self test failed.(%d)\n", ret);
+	}
 
+#ifndef CONFIG_HUAWEI_KERNEL
 	return snprintf(buf, PAGE_SIZE, "%s\n",
 			ret ? "fail" : "pass");
+#else
+	return snprintf(buf, PAGE_SIZE, "%s\n",
+			ret ? "1":"0");
+#endif
 }
 
 static ssize_t sensors_max_latency_store(struct device *dev,
@@ -469,15 +478,9 @@ static struct device_attribute sensors_class_attrs[] = {
 	__ATTR(enable_wakeup, 0664, sensors_enable_wakeup_show,
 			sensors_enable_wakeup_store),
 	__ATTR(poll_delay, 0664, sensors_delay_show, sensors_delay_store),
-	__ATTR(self_test, 0440, sensors_test_show, NULL),
-	__ATTR(max_latency, 0660, sensors_max_latency_show,
-			sensors_max_latency_store),
-	__ATTR(flush, 0660, sensors_flush_show, sensors_flush_store),
-	__ATTR(calibrate, 0664, sensors_calibrate_show,
-			sensors_calibrate_store),
+	__ATTR(self_test, 0444, sensors_test_show, NULL),
 	__ATTR_NULL,
 };
-
 /**
  * sensors_classdev_register - register a new object of sensors_classdev class.
  * @parent: The device to register.

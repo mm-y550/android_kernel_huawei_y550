@@ -288,6 +288,10 @@ configure_iris_xo(struct device *dev,
 
 	use_48mhz_xo = cfg->use_48mhz_xo;
 
+#ifdef CONFIG_HUAWEI_WIFI
+	wlan_log_err("wcnss: %s enter,use_48mhz_xo:%d,on:%d;\n", __func__,use_48mhz_xo,on);
+#endif
+
 	if (wcnss_hardware_type() == WCNSS_PRONTO_HW) {
 		pmu_offset = PRONTO_PMU_OFFSET;
 		spare_offset = PRONTO_SPARE_OFFSET;
@@ -351,38 +355,30 @@ configure_iris_xo(struct device *dev,
 			iris_reg &= 0xffff;
 			iris_reg |= PRONTO_IRIS_REG_CHIP_ID;
 			writel_relaxed(iris_reg, iris_read_reg);
-			do {
-				/* Iris read */
-				reg = readl_relaxed(pmu_conf_reg);
-				reg |= WCNSS_PMU_CFG_IRIS_XO_READ;
-				writel_relaxed(reg, pmu_conf_reg);
 
-				/* Wait for PMU_CFG.iris_reg_read_sts */
-				while (readl_relaxed(pmu_conf_reg) &
-						WCNSS_PMU_CFG_IRIS_XO_READ_STS)
-					cpu_relax();
+			/* Iris read */
+			reg = readl_relaxed(pmu_conf_reg);
+			reg |= WCNSS_PMU_CFG_IRIS_XO_READ;
+			writel_relaxed(reg, pmu_conf_reg);
 
-				iris_reg = readl_relaxed(iris_read_reg);
-				pr_info("wcnss: IRIS Reg: %08x\n", iris_reg);
+			/* Wait for PMU_CFG.iris_reg_read_sts */
+			while (readl_relaxed(pmu_conf_reg) &
+					WCNSS_PMU_CFG_IRIS_XO_READ_STS)
+				cpu_relax();
 
-				if (validate_iris_chip_id(iris_reg) && i >= 4) {
-					pr_info("wcnss: IRIS Card absent/invalid\n");
-					auto_detect = WCNSS_XO_INVALID;
-					/* Reset iris read bit */
-					reg &= ~WCNSS_PMU_CFG_IRIS_XO_READ;
-					/* Clear XO_MODE[b2:b1] bits.
-					 * Clear implies 19.2 MHz TCXO
-					 */
-					reg &= ~(WCNSS_PMU_CFG_IRIS_XO_MODE);
-					goto xo_configure;
-				} else if (!validate_iris_chip_id(iris_reg)) {
-					pr_debug("wcnss: IRIS Card is present\n");
-					break;
-				}
+			iris_reg = readl_relaxed(iris_read_reg);
+			pr_info("wcnss: IRIS Reg: %08x\n", iris_reg);
+			if (iris_reg == PRONTO_IRIS_REG_CHIP_ID) {
+				pr_info("wcnss: IRIS Card not Preset\n");
+				auto_detect = WCNSS_XO_INVALID;
+				/* Reset iris read bit */
 				reg &= ~WCNSS_PMU_CFG_IRIS_XO_READ;
-				writel_relaxed(reg, pmu_conf_reg);
-				wcnss_iris_reset(reg, pmu_conf_reg);
-			} while (i++ < 5);
+				/* Clear XO_MODE[b2:b1] bits.
+				   Clear implies 19.2 MHz TCXO
+				 */
+				reg &= ~(WCNSS_PMU_CFG_IRIS_XO_MODE);
+				goto xo_configure;
+			}
 			auto_detect = xo_auto_detect(iris_reg);
 
 			/* Reset iris read bit */
@@ -463,6 +459,10 @@ fail:
 
 	if (clk_rf != NULL)
 		clk_put(clk_rf);
+
+#ifdef CONFIG_HUAWEI_WIFI
+	wlan_log_err("wcnss: %s exit;\n", __func__);
+#endif
 
 	return rc;
 }
@@ -715,6 +715,10 @@ int wcnss_wlan_power(struct device *dev,
 	int rc = 0;
 	enum wcnss_hw_type hw_type = wcnss_hardware_type();
 
+#ifdef CONFIG_HUAWEI_WIFI
+	wlan_log_err("wcnss: %s enter,on:%d;line:%d;\n", __func__,on,__LINE__);
+#endif
+
 	down(&wcnss_power_on_lock);
 	if (on) {
 		/* RIVA regulator settings */
@@ -745,6 +749,10 @@ int wcnss_wlan_power(struct device *dev,
 		wcnss_core_vregs_off(hw_type, cfg);
 	}
 
+#ifdef CONFIG_HUAWEI_WIFI
+	wlan_log_err("wcnss: %s exit,rc:%d;line:%d;\n", __func__,rc,__LINE__);
+#endif
+
 	up(&wcnss_power_on_lock);
 	return rc;
 
@@ -756,6 +764,11 @@ fail_iris_on:
 
 fail_wcnss_on:
 	up(&wcnss_power_on_lock);
+
+#ifdef CONFIG_HUAWEI_WIFI
+	wlan_log_err("wcnss: %s exit,rc:%d;line:%d;\n", __func__,rc,__LINE__);
+#endif
+
 	return rc;
 }
 EXPORT_SYMBOL(wcnss_wlan_power);

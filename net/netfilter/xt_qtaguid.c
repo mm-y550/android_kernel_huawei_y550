@@ -1508,6 +1508,7 @@ static const struct file_operations proc_iface_stat_fmt_fops = {
 	.open		= proc_iface_stat_fmt_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
+    /* fix the malloc 64 size leak */
 	.release	= seq_release_private,
 };
 

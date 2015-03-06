@@ -353,11 +353,40 @@ static int check_bufsize_for_encoding(struct diag_smd_info *smd_info, void *buf,
 	return buf_size;
 }
 
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+int diag_wakeup_qxmdlog_proc(void)
+{
+	int i = 0;
+
+	/*To find the md_log index*/
+	for (i = 0; i < driver->num_clients; i++)
+	{
+		if (driver->client_map[i].pid == driver->mixed_qmdlog_pid)
+		{
+			break;
+		}
+	}
+
+	if (i < driver->num_clients) {
+		/*set the  data ready of corresponding index*/
+		pr_debug("diag: wake up logging process\n");
+		driver->data_ready[i] |= USER_SPACE_DATA_TYPE;
+		wake_up_interruptible(&driver->wait_q);
+		return 0;
+	} else
+		return -EINVAL;
+}
+#endif
+
 /* Process the data read from the smd data channel */
 int diag_process_smd_read_data(struct diag_smd_info *smd_info, void *buf,
 			       int total_recd)
 {
 	int *in_busy_ptr = 0;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+	int *in_busy_usb_ptr = NULL;
+	int *in_busy_file_ptr = NULL;
+#endif
 	int err = 0;
 	int success = 0;
 	int write_length = total_recd;
@@ -381,17 +410,56 @@ int diag_process_smd_read_data(struct diag_smd_info *smd_info, void *buf,
 		/* If the data is already hdlc encoded */
 		if (smd_info->buf_in_1 == buf) {
 			in_busy_ptr = &smd_info->in_busy_1;
-			ctxt = smd_info->buf_in_1_ctxt;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+			in_busy_usb_ptr = &smd_info->in_busy_usb_1;
+			in_busy_file_ptr = &smd_info->in_busy_file_1;
+#endif
 		} else if (smd_info->buf_in_2 == buf) {
 			in_busy_ptr = &smd_info->in_busy_2;
-			ctxt = smd_info->buf_in_2_ctxt;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+			in_busy_usb_ptr = &smd_info->in_busy_usb_2;
+			in_busy_file_ptr = &smd_info->in_busy_file_2;
+#endif
 		} else {
 			pr_err("diag: In %s, no match for in_busy_1, peripheral: %d\n",
 				__func__, smd_info->peripheral);
 			return -EIO;
 		}
-		write_buf = buf;
-		success = 1;
+
+		if (write_ptr_modem) {
+			spin_lock_irqsave(&smd_info->in_busy_lock, flags);
+			write_ptr_modem->length = total_recd;
+			*in_busy_ptr = 1;
+
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+			/* set the busy flags of file and usb tranfer ways based on the mixed_qmdlog_flag
+			  * and usb_connected, then wakeup diag/dev
+			  * when both mixed_qmdlog and qxdm usb port run meanwhile
+			  * use in_busy_x as the total flag, in_busy_usb_x as qxdm usb port flag, in_busy_file_x as mixed_qmdlog flag
+			  *
+			  * others: using flag of in_busy_x as before.
+			  **/
+			if(driver->mixed_qmdlog_flag){
+				if(driver->usb_connected){
+					*in_busy_usb_ptr = 1;
+					*in_busy_file_ptr = 1;
+				}
+				/*to get smd data by diag/dev file node*/
+				err = diag_wakeup_qxmdlog_proc();
+				if(err){
+					pr_err("diag_process_smd_read_data: diag_wakeup_qxmdlog_proc: err: %d\n", err);
+				}
+			}
+#endif
+
+			err = diag_device_write(buf, smd_info->peripheral,
+						write_ptr_modem);
+			if (err) {
+				pr_err_ratelimited("diag: In %s, diag_device_write error: %d\n",
+					__func__, err);
+			}
+			spin_unlock_irqrestore(&smd_info->in_busy_lock, flags);
+		}
 	} else {
 		/* The data is raw and needs to be hdlc encoded */
 		write_length = check_bufsize_for_encoding(smd_info, buf,
@@ -401,11 +469,17 @@ int diag_process_smd_read_data(struct diag_smd_info *smd_info, void *buf,
 		if (smd_info->buf_in_1_raw == buf) {
 			write_buf = smd_info->buf_in_1;
 			in_busy_ptr = &smd_info->in_busy_1;
-			ctxt = smd_info->buf_in_1_ctxt;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+			in_busy_usb_ptr = &smd_info->in_busy_usb_1;
+			in_busy_file_ptr = &smd_info->in_busy_file_1;
+#endif
 		} else if (smd_info->buf_in_2_raw == buf) {
 			write_buf = smd_info->buf_in_2;
 			in_busy_ptr = &smd_info->in_busy_2;
-			ctxt = smd_info->buf_in_2_ctxt;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+			in_busy_usb_ptr = &smd_info->in_busy_usb_2;
+			in_busy_file_ptr = &smd_info->in_busy_file_2;
+#endif
 		} else {
 			pr_err("diag: In %s, no match for in_busy_1, peripheral: %d\n",
 				__func__, smd_info->peripheral);
@@ -416,10 +490,51 @@ int diag_process_smd_read_data(struct diag_smd_info *smd_info, void *buf,
 						 &write_length);
 	}
 
-	if (!success) {
-		pr_err_ratelimited("diag: smd data write unsuccessful, success: %d\n",
-				   success);
-		return 0;
+		if (write_ptr_modem) {
+			int success = 0;
+			int write_length = 0;
+			unsigned char *write_buf = NULL;
+
+			write_length = check_bufsize_for_encoding(smd_info, buf,
+								total_recd);
+			if (write_length) {
+				write_buf = (buf == smd_info->buf_in_1_raw) ?
+					smd_info->buf_in_1 : smd_info->buf_in_2;
+				success = diag_add_hdlc_encoding(smd_info, buf,
+							total_recd, write_buf,
+							&write_length);
+				spin_lock_irqsave(&smd_info->in_busy_lock,
+						  flags);
+				if (success) {
+					write_ptr_modem->length = write_length;
+					*in_busy_ptr = 1;
+
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+					/* as the before not hdlc case*/
+					if(driver->mixed_qmdlog_flag){
+						if(driver->usb_connected){
+							*in_busy_usb_ptr = 1;
+							*in_busy_file_ptr = 1;
+						}
+						err = diag_wakeup_qxmdlog_proc();
+						if(err){
+							pr_err("diag_process_smd_read_data: diag_wakeup_qxmdlog_proc: err: %d\n", err);
+						}
+					}
+#endif
+
+					err = diag_device_write(write_buf,
+							smd_info->peripheral,
+							write_ptr_modem);
+					if (err) {
+						pr_err_ratelimited("diag: In %s, diag_device_write error: %d\n",
+								__func__, err);
+					}
+				}
+				spin_unlock_irqrestore(&smd_info->in_busy_lock,
+						       flags);
+			}
+		}
 	}
 
 	if (write_length > 0) {
@@ -1142,6 +1257,24 @@ int diag_process_apps_pkt(unsigned char *buf, int len)
 						packet_type = 0;
 				}
 			}
+#ifdef CONFIG_HUAWEI_KERNEL
+			/* automation cmd_code is 0xF6 */
+			/* judge if it is automation cmd_code */
+			else if ((entry.cmd_code == 255) 
+					&& (entry.subsys_id == 0xF6) 
+					&& (cmd_code == 0xF6))
+			{
+				if ((entry.cmd_code_lo <= subsys_id) && (entry.cmd_code_hi >= subsys_id))
+				{
+					if( diag_send_data(entry, buf, len,data_type) )
+					{
+						pr_err("%s: diag send data failed\n",__func__);
+					}
+					packet_type = 0;
+				}
+
+			}
+#endif
 		}
 	}
 #if defined(CONFIG_DIAG_OVER_USB)
@@ -1398,6 +1531,14 @@ void diag_reset_smd_data(int queue)
 		spin_lock_irqsave(&driver->smd_data[i].in_busy_lock, flags);
 		driver->smd_data[i].in_busy_1 = 0;
 		driver->smd_data[i].in_busy_2 = 0;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+		pr_debug("diag_reset_smd_data: initialize the smd data channel busy usb and file flag\n");
+		driver->smd_data[i].in_busy_usb_1 = 0;
+		driver->smd_data[i].in_busy_usb_2 = 0;
+		
+		driver->smd_data[i].in_busy_file_1 = 0;
+		driver->smd_data[i].in_busy_file_2 = 0;	
+#endif
 		spin_unlock_irqrestore(&driver->smd_data[i].in_busy_lock,
 				       flags);
 		if (queue)
@@ -1412,6 +1553,14 @@ void diag_reset_smd_data(int queue)
 					  flags);
 			driver->smd_cmd[i].in_busy_1 = 0;
 			driver->smd_cmd[i].in_busy_2 = 0;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+			pr_debug("diag_reset_smd_data: initialize the smd command channel busy usb and file flag\n");
+			driver->smd_cmd[i].in_busy_usb_1 = 0;
+			driver->smd_cmd[i].in_busy_usb_2 = 0;
+
+			driver->smd_cmd[i].in_busy_file_1 = 0;
+			driver->smd_cmd[i].in_busy_file_2 = 0;
+#endif
 			spin_unlock_irqrestore(&driver->smd_cmd[i].in_busy_lock,
 					       flags);
 			if (queue)
@@ -1496,17 +1645,15 @@ static int diagfwd_mux_close(int id, int mode)
 	unsigned long flags;
 	struct diag_smd_info *smd_info = NULL;
 
-	switch (mode) {
-	case DIAG_USB_MODE:
-		driver->usb_connected = 0;
-		break;
-	case DIAG_MEMORY_DEVICE_MODE:
-		break;
-	default:
-		return -EINVAL;
-	}
-
+	printk(KERN_DEBUG "diag: USB disconnected\n");
+	driver->usb_connected = 0;
+	driver->debug_flag = 1;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+	/*To make diag smd channel work when USB disconnect*/
+	if (driver->logging_mode == USB_MODE && !driver->mixed_qmdlog_flag) {
+#else
 	if (driver->logging_mode == USB_MODE) {
+#endif
 		for (i = 0; i < NUM_SMD_DATA_CHANNELS; i++) {
 			smd_info = &driver->smd_data[i];
 			spin_lock_irqsave(&smd_info->in_busy_lock, flags);
@@ -1527,6 +1674,40 @@ static int diagfwd_mux_close(int id, int mode)
 			}
 		}
 	}
+
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+	/*when diag/dev node used, clear the in_busy_usb_x flag*/
+	if (driver->mixed_qmdlog_flag) {
+		for (i = 0; i < NUM_SMD_DATA_CHANNELS; i++) {
+			smd_info = &driver->smd_data[i];
+			spin_lock_irqsave(&smd_info->in_busy_lock, flags);
+			smd_info->in_busy_usb_1 = 1;
+			smd_info->in_busy_usb_2 = 1;
+			smd_info->in_busy_file_1 = 1;
+			smd_info->in_busy_file_2 = 1;
+			smd_info->in_busy_1 = 1;
+			smd_info->in_busy_2 = 1;
+			spin_unlock_irqrestore(&smd_info->in_busy_lock, flags);
+		}
+
+		if (driver->supports_separate_cmdrsp) {
+			for (i = 0; i < NUM_SMD_CMD_CHANNELS; i++) {
+				smd_info = &driver->smd_cmd[i];
+				spin_lock_irqsave(&smd_info->in_busy_lock,
+						  flags);
+				smd_info->in_busy_usb_1 = 1;
+				smd_info->in_busy_usb_2 = 1;
+				smd_info->in_busy_file_1 = 1;
+				smd_info->in_busy_file_2 = 1;
+				smd_info->in_busy_1 = 1;
+				smd_info->in_busy_2 = 1;
+				spin_unlock_irqrestore(&smd_info->in_busy_lock,
+						       flags);
+			}
+		}
+	}
+#endif
+
 	queue_work(driver->diag_real_time_wq,
 		   &driver->diag_real_time_work);
 	return 0;
@@ -1534,8 +1715,53 @@ static int diagfwd_mux_close(int id, int mode)
 
 static int diagfwd_mux_read_done(unsigned char *buf, int len, int ctxt)
 {
-	if (!buf || len <= 0)
-		return -EINVAL;
+	int i;
+	int found_it = 0;
+	unsigned long flags;
+
+	spin_lock_irqsave(&data->in_busy_lock, flags);
+	for (i = 0; i < num_channels; i++) {
+		if (buf == (void *)data[i].buf_in_1) {
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+			if (driver->mixed_qmdlog_flag)
+			{
+				data[i].in_busy_usb_1 = 0;
+				if(!data[i].in_busy_file_1)
+				{
+					data[i].in_busy_1 = 0;
+				}
+			}
+			else
+			{
+				data[i].in_busy_1 = 0;
+			}
+#else
+			data[i].in_busy_1 = 0;
+#endif
+			found_it = 1;
+			break;
+		} else if (buf == (void *)data[i].buf_in_2) {
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+			if (driver->mixed_qmdlog_flag)
+			{
+				data[i].in_busy_usb_2 = 0;
+				if(!data[i].in_busy_file_2)
+				{
+					data[i].in_busy_2 = 0;
+				}
+			}
+			else
+			{
+				data[i].in_busy_2 = 0;
+			}
+#else
+			data[i].in_busy_2 = 0;
+#endif
+			found_it = 1;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&data->in_busy_lock, flags);
 
 	diag_process_hdlc(buf, len);
 	diag_mux_queue_read(ctxt);

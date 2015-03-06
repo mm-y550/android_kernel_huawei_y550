@@ -63,6 +63,8 @@ static uint8_t stats_pingpong_offset_map[] = {
 	(VFE40_STATS_BASE(idx) + 0x4 * \
 	(~(ping_pong >> (stats_pingpong_offset_map[idx])) & 0x1))
 
+#define HW_MAX_SOF_LOG_NUM 5
+static int log_print_num = 0;
 #define VFE40_VBIF_CLKON                    0x4
 #define VFE40_VBIF_IN_RD_LIM_CONF0          0xB0
 #define VFE40_VBIF_IN_RD_LIM_CONF1          0xB4
@@ -456,6 +458,11 @@ static void msm_vfe40_process_camif_irq(struct vfe_device *vfe_dev,
 		return;
 
 	if (irq_status0 & (1 << 0)) {
+		if(log_print_num > 0)
+		{
+			log_print_num--;
+			pr_err("%s: SOF IRQ %d\n", __func__,log_print_num);
+		}
 		ISP_DBG("%s: SOF IRQ\n", __func__);
 		cnt = vfe_dev->axi_data.src_info[VFE_PIX_0].raw_stream_count;
 		if (cnt > 0 && vfe_dev->axi_data.src_info[VFE_PIX_0].
@@ -751,6 +758,9 @@ static long msm_vfe40_reset_hardware(struct vfe_device *vfe_dev,
 			vfe_dev->reset_pending = 0;
 		}
 	}
+	pr_err("%s: \n",__func__);
+	//we print 5 times when camera stream on
+	log_print_num = HW_MAX_SOF_LOG_NUM;
 	return rc;
 }
 

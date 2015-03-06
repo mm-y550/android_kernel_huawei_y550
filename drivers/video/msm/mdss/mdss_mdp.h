@@ -437,6 +437,7 @@ struct mdss_mdp_pipe {
 
 	u8 mixer_stage;
 	u8 is_fg;
+	u8 src_alpha_drop;
 	u8 alpha;
 	u8 blend_op;
 	u8 overfetch_disable;
@@ -963,4 +964,7 @@ int mdss_mdp_wb_set_secure(struct msm_fb_data_type *mfd, int enable);
 int mdss_mdp_wb_get_secure(struct msm_fb_data_type *mfd, uint8_t *enable);
 void mdss_mdp_ctl_restore(void);
 int  mdss_mdp_ctl_reset(struct mdss_mdp_ctl *ctl);
+#ifdef CONFIG_HUAWEI_LCD
+void mdss_dsi_status_check_ctl(struct msm_fb_data_type *mfd, int sheduled);
+#endif
 #endif /* MDSS_MDP_H */

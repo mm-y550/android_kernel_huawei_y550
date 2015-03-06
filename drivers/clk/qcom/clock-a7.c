@@ -305,9 +305,15 @@ static void get_speed_bin_b(struct platform_device *pdev, int *bin,
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "efuse");
 	if (!res) {
-		dev_info(&pdev->dev,
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+								"efuse1");
+		if (!res) {
+			dev_info(&pdev->dev,
 				"No speed/PVS binning available. Defaulting to 0!\n");
-		return;
+			return;
+		}
+		shift = 23;
+		mask  = 0x3;
 	}
 	base = devm_ioremap(&pdev->dev, res->start, resource_size(res));
 	if (!base) {

@@ -18,7 +18,6 @@
 #define _I2C_MSM_V2_H
 
 #include <linux/bitops.h>
-#include <linux/dmaengine.h>
 
 enum msm_i2_debug_level {
 	MSM_ERR,	/* Error messages only. Always on */
@@ -36,7 +35,6 @@ enum msm_i2_debug_level {
 #define MASK_IS_SET(val, mask)      ((val & mask) == mask)
 #define MASK_IS_SET_BOOL(val, mask) (MASK_IS_SET(val, mask) ? 1 : 0)
 #define KHz(freq) (1000 * freq)
-#define I2C_MSM_CLK_FAST_PLUS_FREQ  (1000000)
 
 /* QUP Registers */
 enum {
@@ -100,11 +98,11 @@ enum {
 
 /* Register:QUP_OPERATIONAL fields */
 enum {
-	QUP_INPUT_FIFO_NOT_EMPTY = BIT(5),
-	QUP_OUTPUT_SERVICE_FLAG  = BIT(8),
-	QUP_INPUT_SERVICE_FLAG   = BIT(9),
-	QUP_MAX_OUTPUT_DONE_FLAG = BIT(10),
-	QUP_MAX_INPUT_DONE_FLAG  = BIT(11),
+	QUP_INPUT_FIFO_NOT_EMPTY = 1U << 5,
+	QUP_OUTPUT_SERVICE_FLAG  = 1U << 8,
+	QUP_INPUT_SERVICE_FLAG   = 1U << 9,
+	QUP_MAX_OUTPUT_DONE_FLAG = 1U << 10,
+	QUP_MAX_INPUT_DONE_FLAG  = 1U << 11,
 	QUP_OUT_BLOCK_WRITE_REQ  = BIT(12),
 	QUP_IN_BLOCK_READ_REQ    = BIT(13),
 };
@@ -144,6 +142,11 @@ enum {
 /* Register:QUP_I2C_MASTER_CONFIG fields */
 enum {
 	QUP_EN_VERSION_TWO_TAG  = 1U,
+};
+
+enum {
+	I2C_MSM_CLK_FAST_MAX_FREQ    = 1000000,
+	I2C_MSM_CLK_HIGH_MAX_FREQ    = 3400000,
 };
 
 /* Register:QUP_I2C_MASTER_CLK_CTL field setters */
@@ -381,7 +384,6 @@ struct i2c_msm_xfer_mode_fifo {
 
 /* i2c_msm_xfer_mode_blk: operations and state of Block mode
  *
- * @is_init when true, struct is initialized and requires mem free on exit
  * @in_blk_sz size of input/rx block
  * @out_blk_sz size of output/tx block
  * @tx_cache internal buffer to store tx data
@@ -394,7 +396,7 @@ struct i2c_msm_xfer_mode_fifo {
  *  xfer is complete.
  */
 struct i2c_msm_xfer_mode_blk {
-	bool                     is_init;
+	struct i2c_msm_xfer_mode ops;
 	size_t                   in_blk_sz;
 	size_t                   out_blk_sz;
 	u8                       *tx_cache;
@@ -410,10 +412,47 @@ struct i2c_msm_xfer_mode_blk {
 enum i2c_msm_xfer_mode_id {
 	I2C_MSM_XFER_MODE_FIFO,
 	I2C_MSM_XFER_MODE_BLOCK,
-	I2C_MSM_XFER_MODE_DMA,
+	I2C_MSM_XFER_MODE_BAM,
 	I2C_MSM_XFER_MODE_NONE, /* keep last as a counter */
 };
 
+/*
+ * i2c_msm_ctrl_ver: info that is different between i2c controller versions
+ *
+ * @destroy  Called once on exit.  Deallocate transfer modes
+ * @init     Initialises the controller.
+ * @teardown Teardown the controller and the transfer modes.
+ * @reset    Reset the controller (SW reset)
+ * @choose_mode    Chooses a transfer mode of the xfer_mode[].
+ * @post_xfer      Steps to do after data transfer is done. It updates the error
+ *                 value if needed, and waits until the HW is truly done.
+ * @max_rx_cnt  Max bytes per transfer.
+ * @max_tx_cnt Max bytes per transfer.
+ * @max_buf_size   Number of bytes max between tags.
+ * @msg_ovrhd_bc   Message overhead byte cnt = 4.
+ * @buf_ovrhd_bc   Buffer  overhead byte cnt = 2.
+ * @xfer_mode      Array of available transfer modes. struct i2c_msm_xfer_mode
+ *                 is a "base class" to the particular transfer mode.
+ */
+struct i2c_msm_ctrl_ver {
+	void			  (*destroy)    (struct i2c_msm_ctrl *);
+	int			  (*init)       (struct i2c_msm_ctrl *);
+	void			  (*teardown)   (struct i2c_msm_ctrl *);
+	int			  (*reset)      (struct i2c_msm_ctrl *);
+	int			  (*init_rsrcs) (struct platform_device *,
+						 struct i2c_msm_ctrl *);
+	enum i2c_msm_xfer_mode_id (*choose_mode)(struct i2c_msm_ctrl *);
+	int			  (*post_xfer)  (struct i2c_msm_ctrl *,
+								int err);
+
+	int			  max_rx_cnt;
+	int			  max_tx_cnt;
+	int			  max_buf_size;
+	int			  msg_ovrhd_bc;
+	int			  buf_ovrhd_bc;
+
+	struct i2c_msm_xfer_mode *xfer_mode[I2C_MSM_XFER_MODE_NONE];
+};
 
 struct i2c_msm_dbgfs {
 	struct dentry             *root;
@@ -462,6 +501,8 @@ struct i2c_msm_resources {
 	struct qup_i2c_clk_path_vote clk_path_vote;
 	int                          irq;
 	bool                         disable_dma;
+	u32                          bam_pipe_idx_cons;
+	u32                          bam_pipe_idx_prod;
 	struct pinctrl              *pinctrl;
 	struct pinctrl_state        *gpio_state_active;
 	struct pinctrl_state        *gpio_state_suspend;
@@ -564,9 +605,6 @@ struct i2c_msm_xfer {
 	atomic_t                   event_cnt;
 	atomic_t                   is_active;
 	struct mutex               mtx;
-	struct i2c_msm_xfer_mode_fifo	fifo;
-	struct i2c_msm_xfer_mode_blk	blk;
-	struct i2c_msm_xfer_mode_dma	dma;
 };
 
 /*
@@ -579,6 +617,11 @@ struct i2c_msm_xfer {
  * @dbgfs    debug-fs root and values that may be set via debug-fs.
  * @rsrcs    resources from platform data including clocks, gpios, irqs, and
  *           memory regions.
+ * @noise_rjct_scl noise rejection value for the scl line (a field of
+ *           I2C_MASTER_CLK_CTL).
+ * @noise_rjct_sda noise rejection value for the sda line (a field of
+ *           I2C_MASTER_CLK_CTL).
+ * @pdata    the platform data (values from board-file or from device-tree)
  * @mstr_clk_ctl cached value for programming to mstr_clk_ctl register
  */
 struct i2c_msm_ctrl {
@@ -587,25 +630,11 @@ struct i2c_msm_ctrl {
 	struct i2c_msm_xfer        xfer;
 	struct i2c_msm_dbgfs       dbgfs;
 	struct i2c_msm_resources   rsrcs;
+	int                        noise_rjct_scl;
+	int                        noise_rjct_sda;
 	u32                        mstr_clk_ctl;
-	enum i2c_msm_power_state   pwr_state;
-};
-
-/* Enum for the profiling event types */
-enum i2c_msm_prof_evnt_type {
-	I2C_MSM_VALID_END,
-	I2C_MSM_PIP_DSCN,
-	I2C_MSM_PIP_CNCT,
-	I2C_MSM_ACTV_END,
-	I2C_MSM_IRQ_BGN,
-	I2C_MSM_IRQ_END,
-	I2C_MSM_XFER_BEG,
-	I2C_MSM_XFER_END,
-	I2C_MSM_SCAN_SUM,
-	I2C_MSM_NEXT_BUF,
-	I2C_MSM_COMPLT_OK,
-	I2C_MSM_COMPLT_FL,
-	I2C_MSM_PROF_RESET,
+	struct i2c_msm_v2_platform_data *pdata;
+	enum msm_i2c_power_state   pwr_state;
 };
 
 #ifdef CONFIG_I2C_MSM_PROF_DBG

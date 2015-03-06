@@ -143,11 +143,14 @@ module_param(poolsize_qsc_usb, uint, 0);
 /* This is the max number of user-space clients supported at initialization*/
 static unsigned int max_clients = 15;
 static unsigned int threshold_client_limit = 30;
-module_param(max_clients, uint, 0);
-
+#ifdef CONFIG_HUAWEI_KERNEL
+int diag_max_reg = 850;
+int diag_threshold_reg = 1000;
+#else
 /* This is the maximum number of pkt registrations supported at initialization*/
 int diag_max_reg = 600;
 int diag_threshold_reg = 750;
+#endif
 
 /* Timer variables */
 static struct timer_list drain_timer;
@@ -394,6 +397,38 @@ static int diag_remove_client_entry(struct file *file)
 				      ALL_PROC);
 		diag_switch_logging(USB_MODE);
 	}
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+	if (driver->mixed_qmdlog_pid == current->tgid)
+	{
+		driver->mixed_qmdlog_flag = 0;
+		driver->mixed_qmdlog_pid = 0;
+		/*when usb qxdm port used, clear the in_busy_file_x flag*/
+		if (driver->usb_connected) {
+			for (i = 0; i < NUM_SMD_DATA_CHANNELS; i++) {
+				driver->smd_data[i].in_busy_file_1 = 0;
+				driver->smd_data[i].in_busy_file_2 = 0;
+				driver->smd_data[i].in_busy_usb_1 = 0;
+				driver->smd_data[i].in_busy_usb_2 = 0;
+				driver->smd_data[i].in_busy_1 = 0;
+				driver->smd_data[i].in_busy_2 = 0;		
+			}
+
+			if (driver->supports_separate_cmdrsp) {
+				for (i = 0; i < NUM_SMD_CMD_CHANNELS; i++) {
+					driver->smd_cmd[i].in_busy_file_1 = 0;
+					driver->smd_cmd[i].in_busy_file_2 = 0;
+					driver->smd_cmd[i].in_busy_usb_1 = 0;
+					driver->smd_cmd[i].in_busy_usb_2 = 0;
+					driver->smd_cmd[i].in_busy_1 = 0;
+					driver->smd_cmd[i].in_busy_2 = 0;	
+				}
+			}
+		}
+		diag_update_proc_vote(DIAG_PROC_MEMORY_DEVICE, VOTE_DOWN, ALL_PROC);
+		queue_work(driver->diag_real_time_wq,
+						&driver->diag_real_time_work);
+	}
+#endif
 #endif /* DIAG over USB */
 	/* Delete the pkt response table entry for the exiting process */
 	for (i = 0; i < diag_max_reg; i++)
@@ -1400,6 +1435,9 @@ long diagchar_ioctl(struct file *filp,
 		if (copy_from_user((void *)&req_logging_mode,
 					(void __user *)ioarg, sizeof(int)))
 			return -EFAULT;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+		pr_info("diag: In %s, request to switch to mode : %d\n", __func__, req_logging_mode);
+#endif
 		result = diag_switch_logging(req_logging_mode);
 		break;
 	case DIAG_IOCTL_REMOTE_DEV:
@@ -1416,12 +1454,27 @@ long diagchar_ioctl(struct file *filp,
 	case DIAG_IOCTL_GET_REAL_TIME:
 		result = diag_ioctl_get_real_time(ioarg);
 		break;
-	case DIAG_IOCTL_PERIPHERAL_BUF_CONFIG:
-		result = diag_ioctl_set_buffering_mode(ioarg);
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+	case DIAG_IOCTL_QXDM_LOG:
+		pr_info("%s DIAG_IOCTL_QXDM_LOG\n", __func__);
+		/*value the flag of mixed_qmdlog_flag and current user space thread tgid */
+		driver->mixed_qmdlog_flag = 1;
+		driver->mixed_qmdlog_pid = current->tgid;
+		if (!driver->usb_connected)
+		{
+			int i = 0;
+			diag_reset_smd_data(RESET_AND_QUEUE);
+			for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++) {
+				/* Poll SMD CNTL channels to check for data */
+				diag_smd_notify(&(driver->smd_cntl[i]), SMD_EVENT_DATA);
+			}
+		}
+		diag_update_proc_vote(DIAG_PROC_MEMORY_DEVICE, VOTE_UP, ALL_PROC);
+		queue_work(driver->diag_real_time_wq,
+						&driver->diag_real_time_work);
+		result = 0;
 		break;
-	case DIAG_IOCTL_PERIPHERAL_BUF_DRAIN:
-		result = diag_ioctl_peripheral_drain_immediate(ioarg);
-		break;
+#endif
 	}
 	return result;
 }
@@ -1453,16 +1506,198 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 
 	mutex_lock(&driver->diagchar_mutex);
 
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+	if ((driver->data_ready[index] & USER_SPACE_DATA_TYPE)
+			&& (driver->logging_mode == MEMORY_DEVICE_MODE || driver->mixed_qmdlog_flag)) {
+#else
 	if ((driver->data_ready[index] & USER_SPACE_DATA_TYPE) && (driver->
 					logging_mode == MEMORY_DEVICE_MODE)) {
+#endif
+		remote_token = 0;
 		pr_debug("diag: process woken up\n");
 		/*Copy the type of data being passed*/
 		data_type = driver->data_ready[index] & USER_SPACE_DATA_TYPE;
 		driver->data_ready[index] ^= USER_SPACE_DATA_TYPE;
 		COPY_USER_SPACE_OR_EXIT(buf, data_type, sizeof(int));
 		/* place holder for number of data field */
-		ret += sizeof(int);
-		exit_stat = diag_md_copy_to_user(buf, &ret, count);
+		ret += 4;
+
+		spin_lock_irqsave(&driver->rsp_buf_busy_lock, flags);
+		if (driver->rsp_write_ptr->length > 0) {
+			if (copy_to_user(buf+ret,
+			    (void *)&(driver->rsp_write_ptr->length),
+			    sizeof(int)))
+				goto drop_rsp;
+			ret += sizeof(int);
+			if (copy_to_user(buf+ret,
+			    (void *)(driver->rsp_write_ptr->buf),
+			    driver->rsp_write_ptr->length)) {
+				ret -= sizeof(int);
+				goto drop_rsp;
+			}
+			num_data++;
+			ret += driver->rsp_write_ptr->length;
+drop_rsp:
+			driver->rsp_write_ptr->length = 0;
+			driver->rsp_buf_busy = 0;
+		}
+		spin_unlock_irqrestore(&driver->rsp_buf_busy_lock, flags);
+
+		for (i = 0; i < driver->buf_tbl_size; i++) {
+			if (driver->buf_tbl[i].length > 0) {
+#ifdef DIAG_DEBUG
+				pr_debug("diag: WRITING the buf address and length is %p , %d\n",
+					 driver->buf_tbl[i].buf,
+					 driver->buf_tbl[i].length);
+#endif
+				num_data++;
+				/* Copy the length of data being passed */
+				if (copy_to_user(buf+ret, (void *)&(driver->
+						buf_tbl[i].length), 4)) {
+						num_data--;
+						goto drop;
+				}
+				ret += 4;
+
+				/* Copy the actual data being passed */
+				if (copy_to_user(buf+ret, (void *)driver->
+				buf_tbl[i].buf, driver->buf_tbl[i].length)) {
+					ret -= 4;
+					num_data--;
+					goto drop;
+				}
+				ret += driver->buf_tbl[i].length;
+drop:
+#ifdef DIAG_DEBUG
+				pr_debug("diag: DEQUEUE buf address and length is %p, %d\n",
+					 driver->buf_tbl[i].buf,
+					 driver->buf_tbl[i].length);
+#endif
+				diagmem_free(driver, (unsigned char *)
+				(driver->buf_tbl[i].buf), POOL_TYPE_HDLC);
+				driver->buf_tbl[i].length = 0;
+				driver->buf_tbl[i].buf = 0;
+			}
+		}
+
+		/* Copy peripheral data */
+		for (i = 0; i < NUM_SMD_DATA_CHANNELS; i++) {
+			struct diag_smd_info *data = &driver->smd_data[i];
+			if (data->in_busy_1 == 1) {
+				num_data++;
+				/*Copy the length of data being passed*/
+				COPY_USER_SPACE_OR_EXIT(buf+ret,
+					(data->write_ptr_1->length), 4);
+				/*Copy the actual data being passed*/
+				COPY_USER_SPACE_OR_EXIT(buf+ret,
+					*(data->buf_in_1),
+					data->write_ptr_1->length);
+				spin_lock_irqsave(&data->in_busy_lock, flags);
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+				if (driver->mixed_qmdlog_flag)
+				{
+					data->in_busy_file_1 = 0;
+					/*the user read out the data then clear the smd data flag */
+					if(!data->in_busy_usb_1)
+					{
+						data->in_busy_1 = 0;
+					}
+				}
+				else
+				{
+					data->in_busy_1 = 0;
+				}
+#else
+				data->in_busy_1 = 0;
+#endif
+				spin_unlock_irqrestore(&data->in_busy_lock,
+						       flags);
+				diag_ws_on_copy(DIAG_WS_MD);
+				copy_data = 1;
+			}
+			if (data->in_busy_2 == 1) {
+				num_data++;
+				/*Copy the length of data being passed*/
+				COPY_USER_SPACE_OR_EXIT(buf+ret,
+					(data->write_ptr_2->length), 4);
+				/*Copy the actual data being passed*/
+				COPY_USER_SPACE_OR_EXIT(buf+ret,
+					*(data->buf_in_2),
+					data->write_ptr_2->length);
+				spin_lock_irqsave(&data->in_busy_lock, flags);
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+				if (driver->mixed_qmdlog_flag)
+				{
+					data->in_busy_file_2 = 0;
+					if(!data->in_busy_usb_2)
+					{
+						data->in_busy_2 = 0;
+					}
+				}
+				else
+				{
+					data->in_busy_2 = 0;
+				}
+#else
+				data->in_busy_2 = 0;
+#endif
+				spin_unlock_irqrestore(&data->in_busy_lock,
+						       flags);
+				diag_ws_on_copy(DIAG_WS_MD);
+				copy_data = 1;
+			}
+		}
+		if (driver->supports_separate_cmdrsp) {
+			for (i = 0; i < NUM_SMD_CMD_CHANNELS; i++) {
+				struct diag_smd_info *data =
+						&driver->smd_cmd[i];
+				if (!driver->separate_cmdrsp[i])
+					continue;
+
+				if (data->in_busy_1 == 1) {
+					num_data++;
+					/*Copy the length of data being passed*/
+					COPY_USER_SPACE_OR_EXIT(buf+ret,
+						(data->write_ptr_1->length), 4);
+					/*Copy the actual data being passed*/
+					COPY_USER_SPACE_OR_EXIT(buf+ret,
+						*(data->buf_in_1),
+						data->write_ptr_1->length);
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+					if (driver->mixed_qmdlog_flag)
+					{
+						data->in_busy_file_1 = 0;
+						if(!data->in_busy_usb_1)
+						{
+							data->in_busy_1 = 0;
+						}
+					}
+					else
+					{
+						data->in_busy_1 = 0;
+					}
+#else
+					data->in_busy_1 = 0;
+#endif
+				}
+			}
+		}
+
+		/* Copy date from remote processors */
+		exit_stat = diag_copy_remote(buf, count, &ret, &num_data);
+		if (exit_stat == 1)
+			goto exit;
+
+		/* copy number of data fields */
+		COPY_USER_SPACE_OR_EXIT(buf+4, num_data, 4);
+		ret -= 4;
+		for (i = 0; i < NUM_SMD_DATA_CHANNELS; i++) {
+			if (driver->smd_data[i].ch)
+				queue_work(driver->smd_data[i].wq,
+				&(driver->smd_data[i].diag_read_smd_work));
+		}
+
+		APPEND_DEBUG('n');
 		goto exit;
 	} else if (driver->data_ready[index] & USER_SPACE_DATA_TYPE) {
 		/* In case, the thread wakes up and the logging mode is
@@ -1646,6 +1881,16 @@ static ssize_t diagchar_write(struct file *file, const char __user *buf,
 		return -EBADMSG;
 	}
 #ifdef CONFIG_DIAG_OVER_USB
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+	if (driver->logging_mode == NO_LOGGING_MODE ||
+	    (!((pkt_type == DCI_DATA_TYPE) ||
+	       ((pkt_type & (DATA_TYPE_DCI_LOG | DATA_TYPE_DCI_EVENT)) == 0))
+		&& (driver->logging_mode == USB_MODE) &&
+		(!driver->usb_connected && !driver->mixed_qmdlog_flag))) {
+		/*Drop the diag payload */
+		return -EIO;
+	}
+#else
 	if (driver->logging_mode == NO_LOGGING_MODE ||
 	    (!((pkt_type == DCI_DATA_TYPE) ||
 	       ((pkt_type & (DATA_TYPE_DCI_LOG | DATA_TYPE_DCI_EVENT)) == 0))
@@ -1654,6 +1899,7 @@ static ssize_t diagchar_write(struct file *file, const char __user *buf,
 		/*Drop the diag payload */
 		return -EIO;
 	}
+#endif
 #endif /* DIAG over USB */
 	if (pkt_type == DCI_DATA_TYPE) {
 		user_space_data = diagmem_alloc(driver, payload_size,
@@ -1755,7 +2001,11 @@ static ssize_t diagchar_write(struct file *file, const char __user *buf,
 		}
 
 		/* Check masks for On-Device logging */
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+		if (driver->mask_check || driver->mixed_qmdlog_flag) {
+#else
 		if (driver->mask_check) {
+#endif
 			if (!mask_request_validate(driver->user_space_data_buf +
 							 token_offset)) {
 				pr_alert("diag: mask request Invalid\n");

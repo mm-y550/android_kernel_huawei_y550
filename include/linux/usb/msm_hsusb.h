@@ -107,6 +107,7 @@ enum msm_usb_phy_type {
 #define IDEV_CHG_MAX	1500
 #define IDEV_CHG_MIN	500
 #define IUNIT		100
+//reuse the default USB current limit
 
 #define IDEV_ACA_CHG_MAX	1500
 #define IDEV_ACA_CHG_LIMIT	500
@@ -368,13 +369,6 @@ struct msm_otg_platform_data {
  * @pclk: clock struct of iface_clk.
  * @core_clk: clock struct of core_bus_clk.
  * @sleep_clk: clock struct of sleep_clk for USB PHY.
- * @phy_reset_clk: clock struct of phy_reset_clk for USB PHY. This clock is
-		a reset only clock and resets the PHY, ULPI bridge and
-		CSR wrapper.
- * @phy_por_clk: clock struct of phy_por_clk for USB PHY. This clock is
-		a reset only clock and resets only the PHY (POR).
- * @phy_csr_clk: clock struct of phy_csr_clk for USB PHY. This clock is
-		required to acess PHY CSR registers via AHB2PHY interface.
  * @bus_clks: bimc/snoc/pcnoc clock struct.
  * @core_clk_rate: core clk max frequency
  * @regs: ioremapped register base address.
@@ -430,10 +424,7 @@ struct msm_otg {
 	struct clk *pclk;
 	struct clk *core_clk;
 	struct clk *sleep_clk;
-	struct clk *phy_reset_clk;
-	struct clk *phy_por_clk;
-	struct clk *phy_csr_clk;
-	struct clk *bus_clks[USB_NUM_BUS_CLOCKS];
+        struct clk *bus_clks[USB_NUM_BUS_CLOCKS];
 	long core_clk_rate;
 	struct resource *io_res;
 	void __iomem *regs;
@@ -485,7 +476,7 @@ struct msm_otg {
 	bool mhl_enabled;
 	bool host_bus_suspend;
 	bool device_bus_suspend;
-	bool bus_clks_enabled;
+        bool bus_clks_enabled;
 	struct timer_list chg_check_timer;
 	/*
 	 * Allowing PHY power collpase turns off the HSUSB 3.3v and 1.8v

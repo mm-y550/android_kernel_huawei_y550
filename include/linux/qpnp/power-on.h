@@ -87,4 +87,6 @@ static inline bool qpnp_pon_check_hard_reset_stored(void)
 }
 #endif
 
+#define POWERONOFF_REASON_MAXLEN    256
+
 #endif

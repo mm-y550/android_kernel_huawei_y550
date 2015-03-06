@@ -156,7 +156,7 @@ struct msm_mdp_interface {
 	int (*off_fnc)(struct msm_fb_data_type *mfd);
 	/* called to release resources associated to the process */
 	int (*release_fnc)(struct msm_fb_data_type *mfd, bool release_all,
-				uint32_t pid);
+					uint32_t pid);
 	int (*kickoff_fnc)(struct msm_fb_data_type *mfd,
 					struct mdp_display_commit *data);
 	int (*ioctl_handler)(struct msm_fb_data_type *mfd, u32 cmd, void *arg);
@@ -184,6 +184,10 @@ struct msm_mdp_interface {
 					out = (2 * (v) * (bl_max) + max_bright)\
 					/ (2 * max_bright);\
 					} while (0)
+struct mdss_fb_file_info {
+	struct file *file;
+	struct list_head list;
+};
 
 struct mdss_fb_file_info {
 	struct file *file;
@@ -247,7 +251,9 @@ struct msm_fb_data_type {
 	u32 bl_updated;
 	u32 bl_level_old;
 	struct mutex bl_lock;
-
+#ifdef CONFIG_FB_AUTO_CABC
+	struct mutex lock; 
+#endif
 	struct platform_device *pdev;
 
 	u32 mdp_fb_page_protection;
@@ -282,10 +288,10 @@ struct msm_fb_data_type {
 	struct list_head proc_list;
 	struct ion_client *fb_ion_client;
 	struct ion_handle *fb_ion_handle;
-	struct dma_buf *fbmem_buf;
-
-	bool mdss_fb_split_stored;
-
+#ifdef CONFIG_HUAWEI_LCD
+	struct delayed_work bkl_work;
+	u32 frame_updated;
+#endif
 	u32 wait_for_kickoff;
 	u32 thermal_level;
 	int doze_mode;

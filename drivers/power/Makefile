@@ -70,4 +70,6 @@ obj-$(CONFIG_BATTERY_BCL)	+= battery_current_limit.o
 obj-$(CONFIG_MSM_BCL_CTL)	+= msm_bcl.o
 obj-$(CONFIG_MSM_BCL_PERIPHERAL_CTL) += bcl_peripheral.o
 obj-$(CONFIG_POWER_RESET)	+= reset/
+obj-$(CONFIG_CHARGER_BQ24152)	+= bq24152_charger.o
+obj-$(CONFIG_BATTERY_BQ27510)	+= bq27510_bms.o
 obj-y				+= qcom/

@@ -95,6 +95,24 @@ static ssize_t diag_dbgfs_read_status(struct file *file, char __user *ubuf,
 		"DCI SENSORS in_busy_1: %d\n"
 		"Modem CMD in_busy_1: %d\n"
 		"Modem CMD in_busy_2: %d\n"
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+		"Modem in_busy_file_1: %d\n"
+		"Modem in_busy_usb_1: %d\n"
+		"Modem in_busy_file_2: %d\n"
+		"Modem in_busy_usb_2: %d\n"
+		"LPASS in_busy_file_1: %d\n"
+		"LPASS in_busy_usb_1: %d\n"
+		"LPASS in_busy_file_2: %d\n"
+		"LPASS in_busy_usb_2: %d\n"
+		"RIVA in_busy_file_1: %d\n"
+		"RIVA in_busy_usb_1: %d\n"
+		"RIVA in_busy_file_2: %d\n"
+		"RIVA in_busy_usb_2: %d\n"
+		"Modem CMD in_busy_file_1: %d\n"
+		"Modem CMD in_busy_usb_1: %d\n"
+		"Modem CMD in_busy_file_2: %d\n"
+		"Modem CMD in_busy_usb_2: %d\n"
+#endif
 		"DCI CMD Modem in_busy_1: %d\n"
 		"DCI CMD LPASS in_busy_1: %d\n"
 		"DCI CMD WCNSS in_busy_1: %d\n"
@@ -181,6 +199,9 @@ static ssize_t diag_dbgfs_read_status(struct file *file, char __user *ubuf,
 		"Buffering Mode on WCNSS: %d\n"
 		"Buffering Mode on SENSORS: %d\n"
 		"logging_mode: %d\n"
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+		"mixed_qxdmlog: %d\n"
+#endif
 		"rsp_in_busy: %d\n",
 		driver->smd_data[MODEM_DATA].ch,
 		driver->smd_data[LPASS_DATA].ch,
@@ -227,12 +248,24 @@ static ssize_t diag_dbgfs_read_status(struct file *file, char __user *ubuf,
 		driver->smd_dci[SENSORS_DATA].in_busy_1,
 		driver->smd_cmd[MODEM_DATA].in_busy_1,
 		driver->smd_cmd[MODEM_DATA].in_busy_2,
-		driver->smd_cmd[LPASS_DATA].in_busy_1,
-		driver->smd_cmd[LPASS_DATA].in_busy_2,
-		driver->smd_cmd[WCNSS_DATA].in_busy_1,
-		driver->smd_cmd[WCNSS_DATA].in_busy_2,
-		driver->smd_cmd[SENSORS_DATA].in_busy_1,
-		driver->smd_cmd[SENSORS_DATA].in_busy_2,
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+		driver->smd_data[MODEM_DATA].in_busy_file_1,
+		driver->smd_data[MODEM_DATA].in_busy_usb_1,
+		driver->smd_data[MODEM_DATA].in_busy_file_2,
+		driver->smd_data[MODEM_DATA].in_busy_usb_2,
+		driver->smd_data[LPASS_DATA].in_busy_file_1,
+		driver->smd_data[LPASS_DATA].in_busy_usb_1,		
+		driver->smd_data[LPASS_DATA].in_busy_file_2,
+		driver->smd_data[LPASS_DATA].in_busy_usb_2,
+		driver->smd_data[WCNSS_DATA].in_busy_file_1,
+		driver->smd_data[WCNSS_DATA].in_busy_usb_1,
+		driver->smd_data[WCNSS_DATA].in_busy_file_2,
+		driver->smd_data[WCNSS_DATA].in_busy_usb_2,
+		driver->smd_cmd[MODEM_DATA].in_busy_file_1,
+		driver->smd_cmd[MODEM_DATA].in_busy_usb_1,
+		driver->smd_cmd[MODEM_DATA].in_busy_file_2,
+		driver->smd_cmd[MODEM_DATA].in_busy_usb_2,
+#endif
 		driver->smd_dci_cmd[MODEM_DATA].in_busy_1,
 		driver->smd_dci_cmd[LPASS_DATA].in_busy_1,
 		driver->smd_dci_cmd[WCNSS_DATA].in_busy_1,
@@ -313,6 +346,9 @@ static ssize_t diag_dbgfs_read_status(struct file *file, char __user *ubuf,
 		driver->buffering_mode[WCNSS_DATA].mode,
 		driver->buffering_mode[SENSORS_DATA].mode,
 		driver->logging_mode,
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+		driver->mixed_qmdlog_flag,
+#endif
 		driver->rsp_buf_busy);
 
 #ifdef CONFIG_DIAG_OVER_USB

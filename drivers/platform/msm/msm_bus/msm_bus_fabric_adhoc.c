@@ -597,15 +597,6 @@ static int msm_bus_qos_enable_clk(struct msm_bus_node_device_type *node)
 		bus_qos_enabled = 1;
 	}
 
-	if (!IS_ERR_OR_NULL(bus_node->qos_clk.clk)) {
-		ret = enable_nodeclk(&bus_node->qos_clk);
-		if (ret) {
-			MSM_BUS_ERR("%s: Failed to enable bus QOS clk, node %d",
-				__func__, node->node_info->id);
-			goto exit_enable_qos_clk;
-		}
-	}
-
 	if (!IS_ERR_OR_NULL(node->qos_clk.clk)) {
 		rounded_rate = clk_round_rate(node->qos_clk.clk, 1);
 		ret = setrate_nodeclk(&node->qos_clk, rounded_rate);

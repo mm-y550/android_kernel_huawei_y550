@@ -320,6 +320,13 @@ struct diag_smd_info {
 
 	int in_busy_1;
 	int in_busy_2;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+	/*add flags to indicate the data using phase: usb or file transfer*/
+	int in_busy_usb_1;
+	int in_busy_file_1;
+	int in_busy_usb_2;
+	int in_busy_file_2;
+#endif
 	spinlock_t in_busy_lock;
 
 	unsigned char *buf_in_1;
@@ -446,6 +453,14 @@ struct diagchar_dev {
 	struct workqueue_struct *diag_real_time_wq;
 #ifdef CONFIG_DIAG_OVER_USB
 	int usb_connected;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+	int mixed_qmdlog_flag;
+#endif
+	struct usb_diag_ch *legacy_ch;
+	struct work_struct diag_proc_hdlc_work;
+	struct work_struct diag_read_work;
+	struct work_struct diag_usb_connect_work;
+	struct work_struct diag_usb_disconnect_work;
 #endif
 	struct workqueue_struct *diag_wq;
 	struct work_struct diag_drain_work;
@@ -460,6 +475,9 @@ struct diagchar_dev {
 	int logging_mode;
 	int mask_check;
 	int logging_process_id;
+#ifdef CONFIG_HUAWEI_FEATURE_DIAG_MDLOG
+	int mixed_qmdlog_pid;
+#endif
 	struct task_struct *socket_process;
 	struct task_struct *callback_process;
 	/* Power related variables */

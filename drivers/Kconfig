@@ -187,7 +187,7 @@ source "drivers/sensors/Kconfig"
 source "drivers/phy/Kconfig"
 
 source "drivers/soc/Kconfig"
-
-source "drivers/firmware/Kconfig"
-
+source "drivers/devdetect/Kconfig"
+source "drivers/hw_fac_info/Kconfig"
+source "drivers/huawei/Kconfig"
 endmenu

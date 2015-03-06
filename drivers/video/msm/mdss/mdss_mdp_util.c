@@ -522,6 +522,10 @@ static int mdss_mdp_put_img(struct mdss_mdp_img_data *data)
 				ion_unmap_iommu(iclient, data->srcp_ihdl,
 					mdss_get_iommu_domain(domain), 0);
 
+				if (domain == MDSS_IOMMU_DOMAIN_SECURE) {
+					msm_ion_unsecure_buffer(iclient,
+							data->srcp_ihdl);
+				}
 				data->mapped = false;
 			}
 			ion_free(iclient, data->srcp_ihdl);
@@ -626,11 +630,12 @@ static int mdss_mdp_map_buffer(struct mdss_mdp_img_data *data)
 				domain = MDSS_IOMMU_DOMAIN_UNSECURE;
 
 			ret = ion_map_iommu(iclient, data->srcp_ihdl,
-						mdss_get_iommu_domain(domain),
-						0, SZ_4K, 0, &data->addr,
-						&data->len, 0, 0);
-			if (!IS_ERR_VALUE(ret))
-				data->mapped = true;
+					    mdss_get_iommu_domain(domain),
+					    0, SZ_4K, 0, start, len, 0, 0);
+			if (ret && (domain == MDSS_IOMMU_DOMAIN_SECURE))
+				msm_ion_unsecure_buffer(iclient,
+						data->srcp_ihdl);
+			data->mapped = true;
 		} else {
 			ret = ion_phys(iclient, data->srcp_ihdl,
 					&data->addr, (size_t *) &data->len);

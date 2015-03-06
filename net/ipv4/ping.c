@@ -257,9 +257,6 @@ int ping_init_sock(struct sock *sk)
 	kgid_t low, high;
 	int ret = 0;
 
-	if (sk->sk_family == AF_INET6)
-		inet6_sk(sk)->ipv6only = 1;
-
 	inet_get_ping_group_range_net(net, &low, &high);
 	if (gid_lte(low, group) && gid_lte(group, high))
 		return 0;

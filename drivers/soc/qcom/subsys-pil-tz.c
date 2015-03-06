@@ -169,6 +169,7 @@ static int scm_pas_enable_bw(void)
 	}
 
 	mutex_unlock(&scm_pas_bw_mutex);
+
 	return ret;
 
 err_bus:
@@ -185,6 +186,7 @@ static void scm_pas_disable_bw(void)
 	if (scm_pas_bw_count-- == 1)
 		msm_bus_scale_client_update_request(scm_perf_client, 0);
 	mutex_unlock(&scm_pas_bw_mutex);
+
 }
 
 static void scm_pas_init(int id)
@@ -583,7 +585,6 @@ static int pil_init_image_trusted(struct pil_desc *pil,
 		scm_pas_disable_bw();
 		return -ENOMEM;
 	}
-
 	memcpy(mdata_buf, metadata, size);
 
 	desc.args[0] = request.proc = d->pas_id;
@@ -598,6 +599,8 @@ static int pil_init_image_trusted(struct pil_desc *pil,
 				&desc);
 		scm_ret = desc.ret[0];
 	}
+
+
 
 	dma_free_attrs(&dev, size, mdata_buf, mdata_phys, &attrs);
 	scm_pas_disable_bw();

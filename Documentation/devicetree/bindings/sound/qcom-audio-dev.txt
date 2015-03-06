@@ -562,48 +562,16 @@ normally open.
 switch type on target typically the switch type will be normally open or
 normally close, value for this property 0 for normally close and 1 for
 normally open.
-- qcom,audio-routing : A list of the connections between audio components.
-- pinctrl-names : Pincntrl entries to configure the PDM gpio lines and
-		  cross connection switch gpio accordingly
-- pinctrl-0 : This explains the active state of the PDM gpio lines
-- pinctrl-1 : This explains the suspend state of the PDM gpio lines
-- pinctrl-2 : This explains the active state of the cross connection
-	      gpio lines
-- pinctrl-3 : This explains the suspend state of the cross connection
-              gpio lines
-- qcom,tapan-mclk-clk-freq : Tapan mclk Freq in Hz.
-- qcom,prim-auxpcm-gpio-clk  : GPIO on which Primary AUXPCM clk signal is coming.
-- qcom,prim-auxpcm-gpio-sync : GPIO on which Primary AUXPCM SYNC signal is coming.
-- qcom,prim-auxpcm-gpio-din  : GPIO on which Primary AUXPCM DIN signal is coming.
-- qcom,prim-auxpcm-gpio-dout : GPIO on which Primary AUXPCM DOUT signal is coming.
-- qcom,prim-auxpcm-gpio-set : set of GPIO lines used for Primary AUXPCM port
-- qcom,tapan-codec-9302: Indicates that this device node is for WCD9302 audio
-			    codec.
-- asoc-platform: This is phandle list containing the references to platform device
-		 nodes that are used as part of the sound card dai-links.
-- asoc-platform-names: This property contains list of platform names. The order of
-		       the platform names should match to that of the phandle order
-		       given in "asoc-platform".
-- asoc-cpu: This is phandle list containing the references to cpu dai device nodes
-	    that are used as part of the sound card dai-links.
-- asoc-cpu-names: This property contains list of cpu dai names. The order of the
-		  cpu dai names should match to that of the phandle order given
-		  in "asoc-cpu". The cpu names are in the form of "%s.%d" form,
-		  where the id (%d) field represents the back-end AFE port id that
-		  this CPU dai is associated with.
-- asoc-codec: This is phandle list containing the references to codec dai device
-	      nodes that are used as part of the sound card dai-links.
-- asoc-codec-names: This property contains list of codec dai names. The order of the
-		    codec dai names should match to that of the phandle order given
-		    in "asoc-codec".
-
-Optional Properties:
-- qcom,us-euro-gpios : GPIO on which gnd/mic swap signal is coming.
-- qcom,msm-micbias1-ext-cap : Boolean. Enable micbias1 external
-capacitor mode.
-- qcom,msm-micbias2-ext-cap : Boolean. Enable micbias2 external
-capacitor mode.
-- qcom,msm-spk-ext-pa : GPIO which enables external speaker pa.
+pinctrl-names : Pincntrl entries to configure the PDM gpio lines and
+	  cross connection switch gpio accordingly
+pinctrl-0 : This explains the active state of the PDM gpio lines
+pinctrl-1 : This explains the suspend state of the PDM gpio lines
+pinctrl-2 : This explains the active state of the cross connection
+      gpio lines
+pinctrl-3 : This explains the suspend state of the cross connection
+            gpio lines
+Optional Properties:                                               
+ qcom,us-euro-gpios : GPIO on which gnd/mic swap signal is coming.
 
 Example:
 

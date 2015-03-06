@@ -85,12 +85,10 @@ struct csid_device {
 	struct csid_ctrl_t *ctrl_reg;
 	uint32_t num_clk;
 	uint32_t num_clk_src_info;
-	struct regulator *reg_ptr;
-	struct clk *csid_clk[CSID_NUM_CLK_MAX];
-	uint32_t csid_clk_index;
-	uint32_t csid_max_clk;
-	uint32_t csid_sof_debug;
-	uint32_t csid_lane_cnt;
+	/*add a delay work for read mipi packet number when stream on*/
+	struct delayed_work packet_num_work;
+
+	struct clk *csid_clk[11];
 };
 
 #define VIDIOC_MSM_CSID_RELEASE \

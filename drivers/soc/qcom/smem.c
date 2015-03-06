@@ -29,6 +29,9 @@
 
 #include <soc/qcom/smem.h>
 
+#ifdef CONFIG_HUAWEI_KERNEL
+#include <soc/qcom/subsystem_restart.h>
+#endif
 
 #include "smem_private.h"
 
@@ -1002,24 +1005,27 @@ static int restart_notifier_cb(struct notifier_block *this,
 				notifier->name);
 		remote_spin_release(&remote_spinlock, notifier->processor);
 		remote_spin_release_all(notifier->processor);
-		break;
-	case SUBSYS_RAMDUMP_NOTIFICATION:
-		if (!(smem_ramdump_dev && notifdata->enable_ramdump))
-			break;
-		SMEM_DBG("%s: saving ramdump\n", __func__);
-		/*
-		 * XPU protection does not currently allow the
-		 * auxiliary memory regions to be dumped.  If this
-		 * changes, then num_smem_areas + 1 should be passed
-		 * into do_elf_ramdump() to dump all regions.
-		 */
-		ret = do_elf_ramdump(smem_ramdump_dev,
-				smem_ramdump_segments, 1);
-		if (ret < 0)
-			LOG_ERR("%s: unable to dump smem %d\n", __func__, ret);
-		break;
-	default:
-		break;
+
+#ifdef CONFIG_HUAWEI_KERNEL
+		if (smem_ramdump_dev && enable_ramdumps) {
+#else
+		if (smem_ramdump_dev) {
+#endif
+			int ret;
+
+			SMEM_DBG("%s: saving ramdump\n", __func__);
+			/*
+			 * XPU protection does not currently allow the
+			 * auxiliary memory regions to be dumped.  If this
+			 * changes, then num_smem_areas + 1 should be passed
+			 * into do_elf_ramdump() to dump all regions.
+			 */
+			ret = do_elf_ramdump(smem_ramdump_dev,
+					smem_ramdump_segments, 1);
+			if (ret < 0)
+				LOG_ERR("%s: unable to dump smem %d\n",
+								__func__, ret);
+		}
 	}
 
 	return NOTIFY_DONE;

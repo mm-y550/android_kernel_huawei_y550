@@ -1759,11 +1759,39 @@ static int venus_hfi_power_enable(void *dev)
 		dprintk(VIDC_ERR, "Invalid params: %p\n", device);
 		return -EINVAL;
 	}
-	mutex_lock(&device->write_lock);
-	rc = venus_hfi_power_on(device);
-	if (rc)
-		dprintk(VIDC_ERR, "%s: Failed to enable power\n", __func__);
-	mutex_unlock(&device->write_lock);
+	mutex_lock(&device->clk_pwr_lock);
+	if (!device->power_enabled)
+		rc = venus_hfi_power_on(device);
+	mutex_unlock(&device->clk_pwr_lock);
+
+	return rc;
+}
+
+static void venus_hfi_pm_hndlr(struct work_struct *work);
+static DECLARE_DELAYED_WORK(venus_hfi_pm_work, venus_hfi_pm_hndlr);
+
+static int venus_hfi_suspend(void *dev)
+{
+	int rc = 0;
+	struct venus_hfi_device *device = (struct venus_hfi_device *) dev;
+
+	if (!device) {
+		dprintk(VIDC_ERR, "%s invalid device\n", __func__);
+		return -EINVAL;
+	}
+	dprintk(VIDC_INFO, "%s\n", __func__);
+
+	if (device->power_enabled) {
+		rc = flush_delayed_work(&venus_hfi_pm_work);
+		dprintk(VIDC_INFO, "%s flush delayed work %d\n", __func__, rc);
+		if (rc == 0) {
+			queue_delayed_work(device->venus_pm_workq, &venus_hfi_pm_work, 0);
+			rc = flush_delayed_work(&venus_hfi_pm_work);
+			dprintk(VIDC_INFO, "%s again flush delayed work %d\n", __func__, rc);
+		}
+	}
+	return 0;
+}
 
 	return rc;
 }
@@ -3156,26 +3184,12 @@ static void venus_hfi_pm_hndlr(struct work_struct *work)
 	u32 ctrl_status = 0;
 	struct venus_hfi_device *device = list_first_entry(
 			&hal_ctxt.dev_head, struct venus_hfi_device, list);
-	if (!device) {
-		dprintk(VIDC_ERR, "%s: NULL device\n", __func__);
-		return;
-	}
+	mutex_lock(&device->clk_pwr_lock);
 	if (!device->power_enabled) {
-		dprintk(VIDC_DBG, "%s: Power already disabled\n",
-				__func__);
-		return;
-	}
-
-	mutex_lock(&device->write_lock);
-	mutex_lock(&device->read_lock);
-	rc = venus_hfi_core_in_valid_state(device);
-	mutex_unlock(&device->read_lock);
-	mutex_unlock(&device->write_lock);
-
-	if (!rc) {
-		dprintk(VIDC_WARN,
-			"Core is in bad state, Skipping power collapse\n");
-		return;
+		dprintk(VIDC_DBG,
+				"Clocks status: %d, Power status: %d, ignore power off\n",
+				device->clk_state, device->power_enabled);
+		goto clks_enabled;
 	}
 
 	dprintk(VIDC_DBG, "Prepare for power collapse\n");
