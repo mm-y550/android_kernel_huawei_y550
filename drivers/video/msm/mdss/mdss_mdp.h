@@ -263,6 +263,7 @@ struct mdss_mdp_img_data {
 	u32 len;
 	u32 flags;
 	int p_need;
+	bool mapped;
 	struct file *srcp_file;
 	struct ion_handle *srcp_ihdl;
 };
@@ -388,6 +389,7 @@ struct mdss_mdp_pipe {
 
 	u8 mixer_stage;
 	u8 is_fg;
+	u8 src_alpha_drop;
 	u8 alpha;
 	u8 blend_op;
 	u8 overfetch_disable;
@@ -795,4 +797,7 @@ int mdss_mdp_footswitch_ctrl_idle_pc(int on, struct device *dev);
 				(mfd->mdp.private1))->wb)
 
 int  mdss_mdp_ctl_reset(struct mdss_mdp_ctl *ctl);
+#ifdef CONFIG_HUAWEI_LCD
+void mdss_dsi_status_check_ctl(struct msm_fb_data_type *mfd, int sheduled);
+#endif
 #endif /* MDSS_MDP_H */

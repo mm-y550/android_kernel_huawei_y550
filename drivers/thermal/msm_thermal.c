@@ -320,7 +320,11 @@ static int  msm_thermal_cpufreq_callback(struct notifier_block *nfb,
 static struct notifier_block msm_thermal_cpufreq_notifier = {
 	.notifier_call = msm_thermal_cpufreq_callback,
 };
-
+/*add for get the cpu offline  */
+int get_offline_cpu(void)
+{
+     return cpus_offlined;
+}
 /* If freq table exists, then we can send freq request */
 static int check_freq_table(void)
 {

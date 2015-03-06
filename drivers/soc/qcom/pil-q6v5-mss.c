@@ -27,6 +27,18 @@
 #include <linux/dma-mapping.h>
 #include <linux/of_gpio.h>
 #include <linux/clk/msm-clk.h>
+
+
+#ifdef CONFIG_HUAWEI_KERNEL
+#include <linux/uaccess.h>
+#include <linux/miscdevice.h>
+#include <linux/fs.h>
+#endif
+
+#ifdef CONFIG_HUAWEI_KERNEL
+#include <linux/sched.h>
+#endif
+
 #include <soc/qcom/subsystem_restart.h>
 #include <soc/qcom/ramdump.h>
 #include <soc/qcom/smem.h>
@@ -60,8 +72,16 @@ static void log_modem_sfr(void)
 	}
 
 	strlcpy(reason, smem_reason, min(size, MAX_SSR_REASON_LEN));
+
 	pr_err("modem subsystem failure reason: %s.\n", reason);
 
+#ifdef CONFIG_HUAWEI_KERNEL
+	if(strstr(reason,"request modem by huawei"))
+	{
+           pr_err("reset modem subsystem by huawei\n");
+	   subsystem_restart_requested = 1;
+	}
+#endif
 	smem_reason[0] = '\0';
 	wmb();
 }
@@ -116,11 +136,29 @@ static int modem_shutdown(const struct subsys_desc *subsys, bool force_stop)
 
 	return 0;
 }
+#ifdef CONFIG_HUAWEI_KERNEL
+#define OEM_QMI	"libqmi_oem_main"
 
+static void restart_oem_qmi(void)
+{
+	struct task_struct *tsk = NULL;
+
+	for_each_process(tsk)
+	{
+		if (tsk->comm && !strcmp(tsk->comm, OEM_QMI))
+		{
+			send_sig(SIGKILL, tsk, 0);
+			return;
+		}
+	}
+}
+#endif
 static int modem_powerup(const struct subsys_desc *subsys)
 {
 	struct modem_data *drv = subsys_to_drv(subsys);
-
+#ifdef CONFIG_HUAWEI_KERNEL
+    int ret = 0;
+#endif
 	if (subsys->is_not_loadable)
 		return 0;
 	/*
@@ -130,7 +168,14 @@ static int modem_powerup(const struct subsys_desc *subsys)
 	 */
 	INIT_COMPLETION(drv->stop_ack);
 	drv->ignore_errors = false;
+#ifdef CONFIG_HUAWEI_KERNEL
+	ret = pil_boot(&drv->q6->desc);
+	/* after modem restart, restart oem qmi */
+	restart_oem_qmi();
+    return ret;
+#else
 	return pil_boot(&drv->q6->desc);
+#endif
 }
 
 static void modem_crash_shutdown(const struct subsys_desc *subsys)
@@ -163,7 +208,8 @@ static int modem_ramdump(int enable, const struct subsys_desc *subsys)
 	if (ret < 0)
 		pr_err("Unable to dump modem fw memory (rc = %d).\n", ret);
 
-	dma_free_coherent(&drv->mba_mem_dev, drv->q6->mba_size,
+	if (drv->q6->mba_virt)
+		dma_free_coherent(&drv->mba_mem_dev, drv->q6->mba_size,
 				drv->q6->mba_virt, drv->q6->mba_phys);
 
 	pil_mss_shutdown(&drv->q6->desc);
@@ -379,5 +425,79 @@ static void __exit pil_mss_exit(void)
 }
 module_exit(pil_mss_exit);
 
+#ifdef CONFIG_HUAWEI_KERNEL
+static ssize_t pil_mss_ctl_read(struct file *fp, char __user *buf,
+			size_t count, loff_t *pos)
+{
+	return 0;
+}
+
+static ssize_t pil_mss_ctl_write(struct file *fp, const char __user *buf,
+			size_t count, loff_t *pos)
+{
+	unsigned char cmd[64];
+	int len = -1;
+
+	if (count < 1)
+		return 0;
+
+	len = count > 63 ? 63 : count;
+
+	if (copy_from_user(cmd, buf, len))
+		return -EFAULT;
+
+	cmd[len] = 0;
+
+	/* lazy */
+	if (cmd[len-1] == '\n') {
+		cmd[len-1] = 0;
+		len--;
+	}
+
+	if (!strncmp(cmd, "reset", 5)) {
+		pr_err("reset modem subsystem requested\n");
+		subsystem_restart_requested = 1;
+		subsystem_restart("modem");
+	}
+
+	return count;
+}
+
+static int pil_mss_ctl_open(struct inode *ip, struct file *fp)
+{
+	return 0;
+}
+
+static int pil_mss_ctl_release(struct inode *ip, struct file *fp)
+{
+	return 0;
+}
+
+static const struct file_operations pil_mss_ctl_fops = {
+	.owner = THIS_MODULE,
+	.read = pil_mss_ctl_read,
+	.write = pil_mss_ctl_write,
+	.open = pil_mss_ctl_open,
+	.release = pil_mss_ctl_release,
+};
+
+static struct miscdevice pil_mss_ctl_dev = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = "pil_mss_ctl",
+	.fops = &pil_mss_ctl_fops,
+};
+
+static int __init pil_mss_ctl_init(void)
+{
+	return misc_register(&pil_mss_ctl_dev);
+}
+module_init(pil_mss_ctl_init);
+
+static void __exit pil_mss_ctl_exit(void)
+{
+	misc_deregister(&pil_mss_ctl_dev);
+}
+module_exit(pil_mss_ctl_exit);
+#endif
 MODULE_DESCRIPTION("Support for booting modem subsystems with QDSP6v5 Hexagon processors");
 MODULE_LICENSE("GPL v2");

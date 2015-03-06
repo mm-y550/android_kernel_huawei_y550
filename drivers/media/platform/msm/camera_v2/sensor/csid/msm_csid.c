@@ -410,6 +410,30 @@ static int msm_csid_release(struct csid_device *csid_dev)
 	return 0;
 }
 
+static int read_times = 0;
+#define HW_PRINT_PACKET_NUM_TIME 5 //print 5 times
+#define HW_READ_PACKET_NUM_TIME 200 //200ms
+#define HW_FIRST_DELAY_TIME 500 //500ms
+static void read_packet_work_handler(struct work_struct *work)
+{
+	struct csid_device *csid_dev = container_of(work, struct csid_device,packet_num_work.work);
+	uint32_t value = 0;
+	if(!csid_dev || !csid_dev->base)
+	{
+		pr_err("%s:%d\n",__func__,__LINE__);
+		return;
+	}
+
+	value = msm_camera_io_r(csid_dev->base + csid_dev->ctrl_reg->csid_reg.csid_stats_total_pkts_rcvd_addr);
+
+	pr_err("%s: csid total packet[%d] = %u\n",__func__,read_times,value);
+
+	read_times--;
+	if(read_times > 0) {
+		schedule_delayed_work(&csid_dev->packet_num_work, msecs_to_jiffies(HW_READ_PACKET_NUM_TIME));
+	}
+}
+
 static int32_t msm_csid_cmd(struct csid_device *csid_dev, void *arg)
 {
 	int rc = 0;
@@ -424,8 +448,10 @@ static int32_t msm_csid_cmd(struct csid_device *csid_dev, void *arg)
 	switch (cdata->cfgtype) {
 	case CSID_INIT:
 		rc = msm_csid_init(csid_dev, &cdata->cfg.csid_version);
-		CDBG("%s csid version 0x%x\n", __func__,
-			cdata->cfg.csid_version);
+		read_times = HW_PRINT_PACKET_NUM_TIME;
+		schedule_delayed_work(&csid_dev->packet_num_work, msecs_to_jiffies(HW_FIRST_DELAY_TIME));
+		pr_err("%s CSID_INIT csid version %x, mem_start=%x\n", __func__,cdata->cfg.csid_version,
+			csid_dev->mem->start);
 		break;
 	case CSID_CFG: {
 		struct msm_camera_csid_params csid_params;
@@ -473,7 +499,10 @@ static int32_t msm_csid_cmd(struct csid_device *csid_dev, void *arg)
 		break;
 	}
 	case CSID_RELEASE:
+		read_times = 0;
+		cancel_delayed_work_sync(&csid_dev->packet_num_work);
 		rc = msm_csid_release(csid_dev);
+		pr_err("%s: CSID_RELEASE\n",__func__);
 		break;
 	default:
 		pr_err("%s: %d failed\n", __func__, __LINE__);
@@ -752,6 +781,8 @@ static int csid_probe(struct platform_device *pdev)
 		pr_err("%s Error registering irq ", __func__);
 		goto csid_no_resource;
 	}
+	/*init work handler*/
+	INIT_DELAYED_WORK(&new_csid_dev->packet_num_work, read_packet_work_handler);
 
 	if (of_device_is_compatible(new_csid_dev->pdev->dev.of_node,
 		"qcom,csid-v2.0")) {
