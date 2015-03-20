@@ -1776,16 +1776,6 @@ int create_pkt_cmd_session_set_property(
 		pkt->size += sizeof(u32) + sizeof(struct hfi_enable);
 		break;
 	}
-	case HAL_PARAM_VDEC_NON_SECURE_OUTPUT2:
-	{
-		struct hfi_enable *hfi;
-		pkt->rg_property_data[0] =
-			HFI_PROPERTY_PARAM_VDEC_NONCP_OUTPUT2;
-		hfi = (struct hfi_enable *) &pkt->rg_property_data[1];
-		hfi->enable = ((struct hfi_enable *) pdata)->enable;
-		pkt->size += sizeof(u32) + sizeof(struct hfi_enable);
-		break;
-	}
 	case HAL_PARAM_VENC_H264_NAL_SVC_EXT:
 	{
 		struct hfi_enable *hfi;
@@ -1794,6 +1784,24 @@ int create_pkt_cmd_session_set_property(
 			HFI_PROPERTY_PARAM_VENC_H264_NAL_SVC_EXT;
 		hfi = (struct hfi_enable *)&pkt->rg_property_data[1];
 		hfi->enable = svc_nal->enable;
+		pkt->size += sizeof(u32) + sizeof(struct hfi_enable);
+		break;
+	}
+	case HAL_CONFIG_VENC_PERF_MODE:
+	{
+		pkt->rg_property_data[0] =
+			HFI_PROPERTY_CONFIG_VENC_PERF_MODE;
+		pkt->rg_property_data[1] = *(u32 *)pdata;
+		pkt->size += sizeof(u32) * 2;
+		break;
+	}
+	case HAL_PARAM_VDEC_NON_SECURE_OUTPUT2:
+	{
+		struct hfi_enable *hfi;
+		pkt->rg_property_data[0] =
+			HFI_PROPERTY_PARAM_VDEC_NONCP_OUTPUT2;
+		hfi = (struct hfi_enable *) &pkt->rg_property_data[1];
+		hfi->enable = ((struct hfi_enable *) pdata)->enable;
 		pkt->size += sizeof(u32) + sizeof(struct hfi_enable);
 		break;
 	}
