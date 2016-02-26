@@ -95,3 +95,5 @@ obj-$(CONFIG_MACH_LONGCHEER)	+= lct_if_ctp_upgrade.o
 
 obj-$(CONFIG_TOUCHSCREEN_MSG2XXX)	+= msg2xxx.o
 obj-$(CONFIG_SYNAPTICS_DSX_S3207)	+= synaptics_dsx_s3207/
+obj-$(CONFIG_TOUCHSCREEN_HUAWEI_FOCALTECH_FT6X06) += focaltech/
+obj-$(CONFIG_TOUCHSCREEN_HUAWEI_MSTAR_MSG21XX) += mstar/
